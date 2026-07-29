@@ -1,0 +1,953 @@
+<!doctype html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Smartboard Live",
+  "schemaVersion": 1,
+  "description": "Live Smart Board for HubSpot tickets (portal 242531638, owner 165370772). Reads tickets via the HubSpot connector and renders a prioritized board with KPIs and charts. Code is the uploaded smartboard-live.html unchanged except the connector server ID, which was repointed to this account's HubSpot connector (0a4dfb00). Note: query_crm_data lacks the reporting-base-read scope and manage_crm_objects (writes) requires reauthorization, so the board runs in read-only/degraded mode via search_crm_objects.",
+  "mcpTools": [
+    "mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__query_crm_data",
+    "mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__manage_crm_objects",
+    "mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__search_crm_objects",
+    "mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__get_crm_objects"
+  ],
+  "mcpServerNames": [
+    "HubSpot",
+    "HubSpot",
+    "HubSpot",
+    "HubSpot"
+  ]
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Board — HubSpot Tickets</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#eef1f6; --panel:#ffffff; --ink:#0f172a; --muted:#64748b; --faint:#94a3b8;
+    --line:#e6e9f0; --line2:#eef1f6; --accent:#4f46e5; --accent-soft:#eef0ff;
+    --red:#dc2626; --red-soft:#fef2f2; --amber:#d97706; --amber-soft:#fff7ed;
+    --green:#16a34a; --green-soft:#f0fdf4; --shadow:0 1px 2px rgba(15,23,42,.04),0 8px 24px rgba(15,23,42,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1120px;margin:0 auto;padding:18px 18px 80px;}
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  .title{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0;display:flex;align-items:center;gap:9px;}
+  .title .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-soft);}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+  .sub b{color:var(--ink);font-weight:700}
+  .head-right{display:flex;align-items:center;gap:8px;}
+  .sync{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);}
+  .sync.ok{color:#0f766e;background:#ecfdf5;border-color:#a7f3d0;}
+  .sync.saving{color:#92560a;background:#fff7ed;border-color:#fed7aa;}
+  .sync.err{color:#991b1b;background:#fef2f2;border-color:#fecaca;}
+  .sync .pip{width:7px;height:7px;border-radius:50%;background:currentColor;}
+  .sync.saving .pip{animation:pulse 1s infinite;}
+  @keyframes pulse{50%{opacity:.3}}
+
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:6px 0 18px;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 13px;cursor:pointer;box-shadow:var(--shadow);transition:transform .12s,border-color .12s,box-shadow .12s;position:relative;overflow:hidden;}
+  .kpi:hover{transform:translateY(-2px);}
+  .kpi .n{font-size:25px;font-weight:800;letter-spacing:-.02em;line-height:1;}
+  .kpi .l{font-size:11px;color:var(--muted);margin-top:6px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .kpi .bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--faint);}
+  .kpi.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft),var(--shadow);}
+  .kpi[data-k="overdue"] .bar{background:var(--red)} .kpi[data-k="overdue"] .n{color:var(--red)}
+  .kpi[data-k="due7"] .bar{background:var(--amber)} .kpi[data-k="due7"] .n{color:var(--amber)}
+  .kpi[data-k="actionable"] .bar{background:var(--green)} .kpi[data-k="actionable"] .n{color:var(--green)}
+  .kpi[data-k="waiting"] .bar{background:#9333ea} .kpi[data-k="waiting"] .n{color:#9333ea}
+  .kpi[data-k="open"] .bar{background:var(--accent)} .kpi[data-k="open"] .n{color:var(--accent)}
+  .kpi[data-k="closed"] .bar{background:var(--faint)} .kpi[data-k="closed"] .n{color:var(--muted)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);margin-bottom:16px;}
+  .panel-h{display:flex;align-items:center;gap:9px;padding:14px 16px 10px;}
+  .panel-h h2{font-size:14.5px;font-weight:800;margin:0;letter-spacing:-.01em;}
+  .panel-h .count{font-size:11px;font-weight:800;color:#fff;background:var(--accent);border-radius:999px;padding:2px 8px;}
+  .panel-h .hint{color:var(--faint);font-size:11.5px;margin-left:auto;font-weight:500}
+  .panel-b{padding:4px 12px 12px;}
+  .grid2{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;}
+  .chartbox{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px 16px;}
+  .chartbox h3{margin:0 0 8px;font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .canvas-h{position:relative;height:172px;}
+
+  .row{display:flex;align-items:flex-start;gap:12px;padding:11px 10px;border-radius:12px;border:1px solid transparent;transition:background .1s,border-color .1s;}
+  .row:hover{background:#f8fafc;border-color:var(--line2);}
+  .row + .row{border-top:1px solid var(--line2);}
+  .row.saving{background:#fffdf5;}
+  .row.flash{animation:flash 1.1s ease;}
+  @keyframes flash{0%{background:#ecfdf5;}100%{background:transparent;}}
+  .rank{flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff;margin-top:1px;}
+  .pdot{flex:none;width:10px;height:10px;border-radius:50%;margin-top:6px;}
+  .main{flex:1;min-width:0;}
+  .name{font-weight:700;font-size:13.5px;letter-spacing:-.01em;display:inline-flex;align-items:center;gap:7px;}
+  .name .ext{opacity:0;transition:opacity .1s;color:var(--faint);font-size:11px;font-weight:600}
+  .row:hover .name .ext{opacity:1}
+  .meta{color:var(--muted);font-size:12px;margin-top:2px;}
+  .meta .hotel{color:var(--ink);font-weight:600}
+
+  .controls{margin-top:8px;display:flex;flex-wrap:wrap;gap:7px;align-items:center;}
+  .ctrl{position:relative;display:inline-flex;align-items:center;}
+  .ctrl select,.ctrl input[type=date]{
+    font:inherit;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;
+    border:1px solid var(--line);border-radius:999px;padding:4px 9px;cursor:pointer;background:#fff;color:var(--ink);
+    appearance:none;-webkit-appearance:none;outline:none;transition:.1s;
+  }
+  .ctrl input[type=date]{text-transform:none;font-weight:700;letter-spacing:0;padding:4px 8px;}
+  .ctrl select:hover,.ctrl input[type=date]:hover{border-color:var(--faint);}
+  .ctrl select:focus,.ctrl input[type=date]:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .ctrl.sel::after{content:"▾";position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:8px;color:var(--faint);pointer-events:none;}
+  .ctrl.sel select{padding-right:20px;}
+
+  .right{flex:none;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:96px;}
+  .due{font-size:11.5px;font-weight:700;white-space:nowrap;}
+  .due.over{color:var(--red)} .due.today{color:var(--amber)} .due.soon{color:var(--amber)} .due.ok{color:var(--muted)} .due.none{color:var(--faint);font-weight:600}
+  .age{font-size:10.5px;color:var(--faint);font-weight:600;white-space:nowrap;}
+  .rowspin{width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite;}
+
+  .prog{margin-top:9px;}
+  .prog-top{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-weight:600;user-select:none;}
+  .prog-bar{flex:1;height:5px;background:#eceff4;border-radius:99px;overflow:hidden;max-width:220px;}
+  .prog-fill{height:100%;background:var(--green);border-radius:99px;transition:width .2s;}
+  .addbtn{font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;border:0;background:none;padding:2px 4px;border-radius:6px;}
+  .addbtn:hover{background:var(--accent-soft);}
+  .chev{transition:transform .15s;color:var(--faint);cursor:pointer;}
+  .tasks{margin-top:8px;display:none;flex-direction:column;gap:2px;}
+  .tasks.open{display:flex}
+  .task{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 4px;border-radius:7px;}
+  .task input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--green);flex:none;margin:0;}
+  .task .ttitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .task .tdue{margin-left:auto;color:var(--faint);font-size:11px;}
+  .task.done .ttitle{text-decoration:line-through;color:var(--faint)}
+  .ttitle.tedit{cursor:text;border-radius:4px;}
+  .ttitle.tedit:hover{text-decoration:underline dotted;text-underline-offset:2px;}
+  .ttedit{font:inherit;font-size:12px;border:1px solid var(--accent);border-radius:6px;padding:2px 6px;outline:none;flex:1;min-width:0;box-shadow:0 0 0 2px var(--accent-soft);}
+  .addrow{display:none;gap:6px;align-items:center;margin-top:5px;padding:3px 4px;}
+  .addrow.open{display:flex}
+  .addrow input[type=text]{flex:1;font:inherit;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 9px;outline:none;}
+  .addrow input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .addrow button{font:inherit;font-size:11.5px;font-weight:700;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:6px 11px;cursor:pointer;}
+
+  .filters{display:flex;flex-direction:column;gap:10px;padding:14px 16px;}
+  .search{display:flex;align-items:center;gap:9px;background:#f8fafc;border:1px solid var(--line);border-radius:11px;padding:9px 12px;}
+  .search input{border:0;background:transparent;outline:none;flex:1;font-size:13.5px;color:var(--ink);}
+  .search svg{color:var(--faint)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+  .chips .lab{font-size:10.5px;color:var(--faint);font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-right:2px;}
+  .chip{font-size:11.5px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--muted);padding:5px 11px;border-radius:999px;cursor:pointer;transition:.1s;}
+  .chip:hover{border-color:var(--faint)}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .topfilter{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:2px 0 16px;}
+  .topfilter .lab{font-size:10.5px;color:var(--faint);font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-right:2px;}
+  .chip.clearx{color:var(--red);border-color:#fecaca;}
+
+  .group-h{display:flex;align-items:center;gap:9px;padding:14px 4px 6px;cursor:pointer;user-select:none;}
+  .group-h .gname{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;}
+  .group-h .gcount{font-size:11px;font-weight:800;color:#fff;border-radius:999px;padding:1px 8px;}
+  .group-body{display:flex;flex-direction:column;}
+  .group.collapsed .group-body{display:none}
+  .group.collapsed .group-h .chev{transform:rotate(-90deg)}
+
+  .empty{padding:34px;text-align:center;color:var(--faint);font-size:13px;}
+  .spinner{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:30px auto;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .errbox{margin:14px 0;padding:14px 16px;background:var(--red-soft);border:1px solid #fecaca;border-radius:12px;color:#991b1b;font-size:12.5px;}
+  .notice{margin:0 0 14px;padding:10px 14px;background:var(--amber-soft);border:1px solid #fed7aa;border-radius:10px;color:#92560a;font-size:12px;font-weight:600;line-height:1.5;}
+  .foot{color:var(--faint);font-size:11px;text-align:center;margin-top:18px;line-height:1.7;}
+  #toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:50;}
+  .toast{padding:10px 14px;border-radius:10px;font-size:12.5px;font-weight:600;color:#fff;background:#0f172a;box-shadow:var(--shadow);opacity:0;transform:translateY(8px);transition:.25s;max-width:300px;}
+  .toast.show{opacity:1;transform:none;}
+  .toast.ok{background:#16a34a;} .toast.err{background:#dc2626;}
+  .details{margin-top:8px;}
+  .dtoggle{padding:3px 0;color:var(--muted);font-weight:700;}
+  .dpanel{margin-top:6px;border:1px solid var(--line);border-radius:10px;padding:10px 11px;background:#fcfdff;display:flex;flex-direction:column;gap:12px;}
+  .dlbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-bottom:5px;}
+  textarea.desc{width:100%;min-height:54px;resize:vertical;font:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;outline:none;background:#fff;}
+  textarea.desc:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .dsave{margin-top:6px;font:inherit;font-size:11.5px;font-weight:700;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:6px 11px;cursor:pointer;}
+  .dhint{font-size:12px;color:var(--faint);}
+  .notelist{display:flex;flex-direction:column;gap:6px;margin-bottom:7px;}
+  .note{border:1px solid var(--line2);border-radius:8px;padding:7px 9px;background:#fff;}
+  .note .nbody{font-size:12.5px;white-space:pre-wrap;word-break:break-word;}
+  .note .nmeta{font-size:10.5px;color:var(--faint);margin-top:3px;}
+  .addnote{display:flex;gap:6px;align-items:center;}
+  .addnote input{flex:1;font:inherit;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:6px 9px;outline:none;}
+  .addnote input:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .addnote button{font:inherit;font-size:11.5px;font-weight:700;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:7px 12px;cursor:pointer;}
+  @media(max-width:760px){ .kpis{grid-template-columns:repeat(3,1fr)} .grid2{grid-template-columns:1fr} .right{min-width:74px} }
+
+  /* Shared pending tasks view */
+  .taskpanel-h,.sec-h{cursor:pointer;}
+  .taskpanel-h .chev,.sec-h .chev{font-size:12px;color:var(--faint);}
+  .sec-h:hover h2{color:var(--accent);}
+  .tg{border:1px solid var(--line2);border-radius:10px;margin:7px 0;overflow:hidden;background:#fff;}
+  .tg-h{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;}
+  .tg-h:hover{background:#f8fafc;}
+  .tg-h .chev{transition:transform .12s;font-size:11px;color:var(--faint);}
+  .tg:not(.open) .tg-h .chev{transform:rotate(-90deg);}
+  .tg-name{font-weight:700;font-size:13px;letter-spacing:-.01em;}
+  .tg-count{margin-left:auto;font-size:11px;font-weight:800;color:#fff;background:#0891b2;border-radius:999px;padding:2px 9px;}
+  .tg-body{display:none;padding:2px 8px 8px;}
+  .tg.open .tg-body{display:block;}
+  .tg-item{display:flex;align-items:center;gap:12px;padding:8px 8px;border-top:1px solid var(--line2);}
+  .tg-item:hover{background:#f8fafc;}
+  .tg-hotel{font-weight:600;font-size:12.5px;min-width:190px;color:var(--ink);}
+  .tg-sub{color:var(--muted);font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tg-stage{font-size:11px;font-weight:700;flex:none;}
+  @media(max-width:760px){ .tg-hotel{min-width:120px;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1 class="title"><span class="dot"></span>My Tickets — Smart Board</h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <div class="head-right">
+      <span class="sync" id="sync"><span class="pip"></span><span id="syncTxt">Connecting…</span></span>
+    </div>
+  </div>
+  <div id="content">
+    <div class="spinner"></div>
+    <div class="empty">Pulling tickets, deals &amp; tasks from HubSpot…</div>
+  </div>
+  <div class="foot" id="foot"></div>
+</div>
+<div id="toasts"></div>
+
+<!-- ==== Live-site bridge: passcode gate + HubSpot proxy shim (added for public Vercel hosting) ==== -->
+<style>
+  #gate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+    background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  #gate .card{background:#fff;color:#0f172a;padding:26px 24px;border-radius:16px;width:320px;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);text-align:center;}
+  #gate h1{font-size:17px;margin:0 0 4px;font-weight:800;}
+  #gate p{font-size:12.5px;color:#64748b;margin:0 0 16px;}
+  #gate input{width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;
+    margin-bottom:10px;box-sizing:border-box;}
+  #gate button{width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;
+    font-weight:700;font-size:14px;cursor:pointer;}
+  #gate button:disabled{opacity:.6;cursor:default;}
+  #gate .err{color:#dc2626;font-size:12px;min-height:15px;margin-bottom:6px;}
+</style>
+<script>
+(function(){
+  var KEY="smartboard.pass";
+  function getPass(){ try{return localStorage.getItem(KEY)||"";}catch(e){return "";} }
+  function setPass(v){ try{localStorage.setItem(KEY,v);}catch(e){} }
+  function clearPass(){ try{localStorage.removeItem(KEY);}catch(e){} }
+
+  function showGate(msg){
+    var g=document.getElementById("gate");
+    if(g){ if(msg){var ee=g.querySelector(".err"); if(ee) ee.textContent=msg;} return; }
+    g=document.createElement("div"); g.id="gate";
+    g.innerHTML='<div class="card"><h1>Smart Board</h1>'
+      +'<p>Enter the passcode to view the live board.</p>'
+      +'<div class="err">'+(msg||"")+'</div>'
+      +'<input id="gpass" type="password" placeholder="Passcode" autocomplete="off">'
+      +'<button id="gbtn">Unlock</button></div>';
+    (document.body||document.documentElement).appendChild(g);
+    var inp=g.querySelector("#gpass"), btn=g.querySelector("#gbtn"), err=g.querySelector(".err");
+    function submit(){
+      var v=inp.value||"";
+      if(!v){ err.textContent="Enter a passcode"; return; }
+      btn.disabled=true; err.textContent="Checking…";
+      fetch("/api/hs",{method:"POST",headers:{"content-type":"application/json","x-board-pass":v},
+        body:JSON.stringify({tool:"ping"})})
+        .then(function(r){
+          if(r.status===200){ setPass(v); location.reload(); return; }
+          btn.disabled=false;
+          if(r.status===401) err.textContent="Wrong passcode";
+          else if(r.status===404) err.textContent="No backend here — open the live site URL, not the local file";
+          else err.textContent="Server error ("+r.status+") — check BOARD_PASSCODE is set";
+        })
+        .catch(function(){ btn.disabled=false; err.textContent="Can't reach the server — open the live site URL"; });
+    }
+    btn.onclick=submit;
+    inp.onkeydown=function(e){ if(e.key==="Enter") submit(); };
+    setTimeout(function(){ inp.focus(); },50);
+  }
+  function gateWhenReady(msg){
+    if(document.body) showGate(msg);
+    else document.addEventListener("DOMContentLoaded",function(){showGate(msg);});
+  }
+
+  // The board calls window.cowork.callMcpTool exactly as it did inside Cowork.
+  // Here we route every call to our own /api/hs proxy, which holds the HubSpot token.
+  window.cowork = window.cowork || {};
+  window.cowork.callMcpTool = function(tool, args){
+    var pass=getPass();
+    if(!pass){ gateWhenReady(); return Promise.resolve({isError:true, content:[{type:"text",text:"Locked"}]}); }
+    return fetch("/api/hs",{method:"POST",
+      headers:{"content-type":"application/json","x-board-pass":pass},
+      body:JSON.stringify({tool:tool,args:args})})
+      .then(function(r){
+        if(r.status===401){ clearPass(); gateWhenReady("Session expired — enter the passcode");
+          return {isError:true, content:[{type:"text",text:"Unauthorized"}]}; }
+        return r.json();
+      });
+  };
+
+  if(!getPass()) gateWhenReady();
+})();
+</script>
+<!-- ==== end bridge ==== -->
+
+<script>
+(function(){
+  "use strict";
+  const QTOOL="mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__query_crm_data";
+  const WTOOL="mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__manage_crm_objects";
+  const OWNER="165370772", PORTAL="242531638";
+  const HS="https://app-na2.hubspot.com/contacts/"+PORTAL+"/record/0-5/";
+  // The platform caches reads by EXACT query text, and the Reload button doesn't bust it.
+  // So append a unique no-op predicate each call to force a genuinely fresh fetch. The big
+  // number is never a real record id, so "!= " is always true and results are unchanged.
+  let _cb=0; const cb=()=>String(Date.now())+(_cb++);
+  const SQL_TICKETS=()=>"SELECT hs_object_id, subject, hs_ticket_priority, hs_pipeline_stage, createdate, closed_date, hs_lastmodifieddate, hs_nextactivitydate, ticket_type, DEAL.dealname FROM TICKET WHERE hubspot_owner_id = '"+OWNER+"' AND hs_object_id != '"+cb()+"'";
+  // Single-object fallback (no DEAL join) used if the cross-object daily limit is hit — keeps the board loading.
+  const SQL_TICKETS_SIMPLE=()=>"SELECT hs_object_id, subject, hs_ticket_priority, hs_pipeline_stage, createdate, closed_date, hs_lastmodifieddate, hs_nextactivitydate, ticket_type FROM TICKET WHERE hubspot_owner_id = '"+OWNER+"' AND hs_object_id != '"+cb()+"'";
+  // Tasks: fetch by the associated TICKET's owner so every task on this owner's tickets shows
+  // (even unowned ones), with the same cache-busting predicate.
+  const SQL_TASKS=()=>"SELECT hs_object_id, hs_task_subject, hs_task_status, hs_timestamp, TICKET.hs_object_id FROM TASK WHERE TICKET.hubspot_owner_id = '"+OWNER+"' AND hs_object_id != '"+cb()+"'";
+
+  const STAGE={
+    "1":{label:"New",color:"#2563eb",soft:"#eff6ff"},
+    "3825884908":{label:"In-Progress",color:"#d97706",soft:"#fff7ed"},
+    "3":{label:"Waiting on us",color:"#0891b2",soft:"#ecfeff"},
+    "3825884907":{label:"Hold",color:"#7c3aed",soft:"#f5f3ff"},
+    "2":{label:"Waiting on Customer",color:"#9333ea",soft:"#faf5ff"},
+    "4":{label:"Closed",color:"#64748b",soft:"#f1f5f9"}
+  };
+  const STAGE_ORDER=["1","3825884908","3","3825884907","2","4"];
+  const ACTIONABLE={"1":1,"3825884908":1,"3":1};
+  const PRI={
+    URGENT:{label:"Urgent",color:"#dc2626",soft:"#fef2f2",w:4},
+    HIGH:{label:"High",color:"#ea580c",soft:"#fff7ed",w:3},
+    MEDIUM:{label:"Medium",color:"#d97706",soft:"#fffbeb",w:2},
+    LOW:{label:"Low",color:"#16a34a",soft:"#f0fdf4",w:1},
+    NONE:{label:"No priority",color:"#94a3b8",soft:"#f1f5f9",w:0}
+  };
+  const PRI_ORDER=["URGENT","HIGH","MEDIUM","LOW","NONE"];
+  const TYPE=["CM Integration","OTA listing","OTA Optimizataion","Razorpay Integration","Booking Engine Setup","Google ARI","Retraining","Monthly Check-in","Bug"];
+  const STOOL="mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__search_crm_objects";
+  const GTOOL="mcp__0a4dfb00-41eb-40d6-ad14-0c35826d5bde__get_crm_objects";
+
+  // ---------- MCP result helpers ----------
+  function pullContent(s){
+    if(typeof s!=="string") return null;
+    const t=s.trim();
+    if(t.charAt(0)==="{"||t.charAt(0)==="["){
+      try{ const j=JSON.parse(t);
+        if(j&&j.results&&j.results[0]&&typeof j.results[0].content==="string") return j.results[0].content;
+        if(Array.isArray(j)&&j[0]&&typeof j[0].content==="string") return j[0].content;
+        if(j&&typeof j.content==="string") return j.content;
+      }catch(e){}
+    }
+    return s;
+  }
+  function extractText(r){
+    const raw=[];
+    if(r==null) return "";
+    if(typeof r==="string") raw.push(r);
+    if(r.structuredContent){ const sc=r.structuredContent;
+      if(sc.results&&sc.results[0]&&typeof sc.results[0].content==="string") raw.push(sc.results[0].content);
+      try{ raw.push(JSON.stringify(sc)); }catch(e){} }
+    if(r.content&&Array.isArray(r.content)){ r.content.forEach(c=>{ if(c&&typeof c.text==="string") raw.push(c.text); }); }
+    const resolved=raw.map(pullContent).filter(Boolean);
+    for(const c of resolved){ if(c.indexOf("Dataset TSV:")!==-1 && /Dataset TSV:\s*\n/.test(c)) return c; }
+    for(const c of resolved){ if(c.indexOf("Dataset TSV:")!==-1) return c; }
+    return resolved[0]||raw[0]||"";
+  }
+  function jsonResult(r){
+    if(r==null) return null;
+    if(r.structuredContent&&typeof r.structuredContent==="object") return r.structuredContent;
+    if(r.content&&Array.isArray(r.content)){
+      for(const c of r.content){ if(c&&typeof c.text==="string"){ try{ return JSON.parse(c.text); }catch(e){} } }
+    }
+    return null;
+  }
+  function parseDataset(text){
+    const m="Dataset TSV:"; const i=text.indexOf(m);
+    let body=i>=0?text.slice(i+m.length):text;
+    let lines=body.split("\n").map(s=>s.replace(/\r$/,"")).filter(s=>s.trim().length>0);
+    lines=lines.filter(s=>!/^Showing\s+\d+\s+of\s+\d+/i.test(s.trim()));
+    if(!lines.length) return {headers:[],rows:[]};
+    return {headers:lines[0].split("\t"),rows:lines.slice(1).map(l=>l.split("\t"))};
+  }
+  const idxOf=(h,tok)=>h.findIndex(x=>x.indexOf(tok)!==-1);
+  const parenCode=v=>{const m=(v||"").match(/\(([^)]+)\)\s*$/);return m?m[1]:null;};
+  const cleanDate=v=>{v=(v||"").trim();return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10):null;};
+  const cleanVal=v=>{v=(v||"").trim();return (!v||v==="Unassigned"||v==="--")?null:v;};
+
+  // ---------- date helpers ----------
+  function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+  function dayDiff(a,b){const pa=a.split("-").map(Number),pb=b.split("-").map(Number);return Math.round((Date.UTC(pa[0],pa[1]-1,pa[2])-Date.UTC(pb[0],pb[1]-1,pb[2]))/86400000);}
+  const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function fmtDate(s){if(!s)return"";const p=s.split("-");return MON[+p[1]-1]+" "+(+p[2]);}
+  function fmtDue(s){ if(!s) return null; const d=dayDiff(s,todayStr());
+    if(d<0) return {txt:"Overdue "+fmtDate(s),cls:"over"};
+    if(d===0) return {txt:"Due today",cls:"today"};
+    if(d===1) return {txt:"Due tomorrow",cls:"soon"};
+    if(d<=7) return {txt:"Due "+fmtDate(s)+" · "+d+"d",cls:"soon"};
+    return {txt:"Due "+fmtDate(s),cls:"ok"};
+  }
+
+  // ---------- state ----------
+  const LS="smartboard.v2";
+  let state={quick:"open",pri:[],type:[],q:"",collapsed:{},openTasks:{},openDetails:{},taskPanelOpen:true,openTaskGroups:{},collapsedSec:{}};
+  try{const s=JSON.parse(localStorage.getItem(LS));if(s)state=Object.assign(state,s);}catch(e){}
+  function save(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}}
+
+  let TICKETS=[], TMAP={}, ownerName="Raj Kumar", updatedAt="", detailsCache={}, pendingAdds={};
+  // Keep just-added tasks visible until HubSpot's search index catches up (it lags a bit for
+  // brand-new records), so a refresh can't briefly drop a task you just created.
+  function mergePending(t){
+    const pend=pendingAdds[t.id]; if(!pend||!pend.length) return;
+    const ids=new Set(t.tasks.map(x=>String(x.id)).filter(Boolean));
+    const titles=t.tasks.map(x=>x.title);
+    const keep=[];
+    pend.forEach(p=>{
+      const known = p.id ? ids.has(String(p.id)) : titles.indexOf(p.title)>-1;
+      if(known) return;                          // server now returns it -> stop pinning
+      if(Date.now()-p.addedAt > 300000) return;  // safety expiry (5 min)
+      t.tasks.push({id:p.id,title:p.title,done:p.done,due:p.due}); keep.push(p);
+    });
+    pendingAdds[t.id]=keep;
+  }
+  let savingCount=0, editing=false, flashId=null, loadGen=0, lastEditTs=0, degradedMsg="";
+
+  function recompute(t){
+    t.closed = t.stage==="4";
+    t.actionable = !!ACTIONABLE[t.stage];
+    const today=todayStr();
+    t.overdue = !t.closed && !!t.target && dayDiff(t.target,today)<0;
+    const dd = t.target?dayDiff(t.target,today):null;
+    t.score = (PRI[t.pri]?PRI[t.pri].w:0)*100
+      + (t.overdue?90:(dd===0?70:(dd!=null&&dd<=3?50:(dd!=null&&dd<=7?30:(t.target?10:0)))))
+      + (t.stage==="3"?25:t.stage==="3825884908"?20:t.stage==="1"?15:t.stage==="3825884907"?5:0)
+      + Math.min(t.age||0,14);
+  }
+
+  // ---------- load (sequential + retry) ----------
+  function sleep(ms){return new Promise(function(res){setTimeout(res,ms);});}
+  async function callQuery(sql){
+    let last="query failed";
+    for(let a=0;a<3;a++){
+      let r; try{ r=await window.cowork.callMcpTool(QTOOL,{sql:sql,verbosityLevel:"LOW"}); }
+      catch(e){ last="call failed: "+String(e&&e.message||e); await sleep(450); continue; }
+      if(r&&r.isError){ last=(r.content&&r.content[0]&&r.content[0].text)||"tool error"; if(/limit|exceed/i.test(last)) throw new Error(last); await sleep(450); continue; }
+      const txt=extractText(r);
+      if(txt&&txt.indexOf("Dataset TSV:")!==-1) return txt;
+      last="no dataset"; await sleep(450);
+    }
+    throw new Error(last);
+  }
+
+  async function load(silent){
+    if(!window.cowork||!window.cowork.callMcpTool){
+      document.getElementById("content").innerHTML='<div class="errbox">This board is live and must run inside Cowork to reach HubSpot. Open it from the Cowork sidebar.</div>';
+      return;
+    }
+    const gen=++loadGen, startTs=Date.now();
+    if(!silent) setSync("saving","Loading…");
+    let tkText=null, tickets=null, tsText=null; const deg=[];
+    // tickets: try with deal/hotel name; if cross-object limit hit, fall back to single-object
+    try{ tkText=await callQuery(SQL_TICKETS()); }
+    catch(e1){ try{ tickets=await searchTickets(); deg.push("hotel names"); }catch(e2){ tickets=null; } }
+    // tasks: cross-object (needed to map tasks to tickets); if it fails, skip checklists this load
+    try{ tsText=await callQuery(SQL_TASKS()); }catch(e3){ tsText=null; deg.push("task checklists"); }
+    if(gen!==loadGen) return;
+    if(silent && lastEditTs>=startTs) return;
+    if(tkText) tickets=parseTickets(tkText);
+    if(tickets){
+      const ids=new Set(tickets.map(t=>t.id));
+      const tasksByTicket = tsText?parseTasks(tsText,ids):{};
+      tickets.forEach(t=>{ t.tasks=tasksByTicket[t.id]||[]; mergePending(t); });
+      TICKETS=tickets; TMAP={}; TICKETS.forEach(t=>TMAP[t.id]=t);
+      updatedAt=new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+      degradedMsg = deg.length ? ("HubSpot's daily cross-object query limit was reached, so "+deg.join(" and ")+" are temporarily hidden. They return automatically once the limit resets (within ~24h). The board now refreshes every 5 min to prevent this.") : "";
+      render(); setSync(deg.length?"err":"ok", deg.length?"Limited":("Synced "+updatedAt));
+    } else if(TICKETS.length){
+      setSync("err","Offline — showing last data");
+    } else if(!silent){
+      document.getElementById("content").innerHTML='<div class="errbox"><b>Could not load from HubSpot.</b><br>The portal hit its daily limit of 500 cross-object queries; it resets within ~24 hours. The board has been set to refresh less often so this won\'t recur.</div>';
+      setSync("err","Sync error");
+    } else { setSync("err","Sync error"); }
+  }
+
+  function parseTickets(text){
+    const {headers,rows}=parseDataset(text); if(!headers.length) return [];
+    const c={id:idxOf(headers,"[hs_object_id]"),sub:idxOf(headers,"[subject]"),pri:idxOf(headers,"[hs_ticket_priority]"),
+      stg:idxOf(headers,"[hs_pipeline_stage]"),cr:idxOf(headers,"[createdate]"),cl:idxOf(headers,"[closed_date]"),
+      na:idxOf(headers,"[hs_nextactivitydate]"),deal:idxOf(headers,"[dealname]"),tt:idxOf(headers,"[ticket_type]")};
+    const today=todayStr();
+    return rows.filter(r=>r[c.id]).map(r=>{
+      const t={
+        id:(r[c.id]||"").trim(),
+        subject:cleanVal(r[c.sub])||"(no subject)",
+        hotel:cleanVal(r[c.deal]),
+        stage:parenCode(r[c.stg])||"1",
+        pri:parenCode(r[c.pri])||"NONE",
+        target:cleanDate(r[c.cl]),
+        created:cleanDate(r[c.cr]),
+        nextAct:cleanDate(r[c.na]),
+        type:(parenCode(r[c.tt])||cleanVal(r[c.tt])||""),
+        tasks:[]
+      };
+      t.age = t.created?dayDiff(today,t.created):null;
+      recompute(t);
+      return t;
+    });
+  }
+  // Build a ticket from a structured property object (used by the search_crm_objects fallback).
+  function ymd(v){ if(v==null||v==="") return null; const d=/^\d+$/.test(String(v))?new Date(Number(v)):new Date(v); return isNaN(d)?null:d.toISOString().slice(0,10); }
+  function ticketFromProps(id,p){
+    const t={ id:String(id), subject:p.subject||"(no subject)", hotel:null,
+      stage:p.hs_pipeline_stage||"1", pri:p.hs_ticket_priority||"NONE",
+      target:ymd(p.closed_date), created:ymd(p.createdate), nextAct:ymd(p.hs_nextactivitydate),
+      type:p.ticket_type||"", tasks:[] };
+    t.age=t.created?dayDiff(todayStr(),t.created):null; recompute(t); return t;
+  }
+  // Single-object ticket read via search (no cross-object daily limit, up to 200 in one call).
+  async function searchTickets(){
+    const props=["subject","hs_ticket_priority","hs_pipeline_stage","createdate","closed_date","hs_lastmodifieddate","hs_nextactivitydate","ticket_type"];
+    const r=await window.cowork.callMcpTool(STOOL,{objectType:"tickets",filterGroups:[{filters:[{propertyName:"hubspot_owner_id",operator:"EQ",value:OWNER}]}],properties:props,limit:200,chatInsights:{userIntent:"Load my tickets for the board",satisfaction:"NEUTRAL"}});
+    if(r&&r.isError) throw new Error((r.content&&r.content[0]&&r.content[0].text)||"search error");
+    const o=jsonResult(r); const res=(o&&o.results)||[];
+    return res.map(x=>ticketFromProps(x.id,x.properties||{}));
+  }
+  function parseTasks(text,ticketIds){
+    const {headers,rows}=parseDataset(text); const out={};
+    if(!headers.length) return out;
+    const idCols=[]; headers.forEach((h,i)=>{ if(h.indexOf("[hs_object_id]")!==-1) idCols.push(i); });
+    const cTitle=idxOf(headers,"[hs_task_subject]"), cSt=idxOf(headers,"[hs_task_status]"), cDue=idxOf(headers,"[hs_timestamp]");
+    rows.forEach(r=>{
+      let tid=null;
+      for(let k=0;k<idCols.length;k++){ const v=(r[idCols[k]]||"").trim(); if(ticketIds&&ticketIds.has(v)){ tid=v; break; } }
+      if(!tid){ if(ticketIds&&ticketIds.size) return; if(idCols.length) tid=(r[idCols[idCols.length-1]]||"").trim(); }
+      if(!tid||tid==="Unassigned") return;
+      let taskId=null;
+      for(let k=0;k<idCols.length;k++){ const v=(r[idCols[k]]||"").trim(); if(v&&v!==tid&&v!=="Unassigned"){ taskId=v; break; } }
+      const st=parenCode(r[cSt])||"NOT_STARTED";
+      (out[tid]=out[tid]||[]).push({ id:taskId, title:cleanVal(r[cTitle])||"Task", done:st==="COMPLETED", due:cleanDate(r[cDue]) });
+    });
+    return out;
+  }
+
+  // ---------- writes ----------
+  function setSync(kind,txt){ const el=document.getElementById("sync"); if(!el)return; el.className="sync "+kind; document.getElementById("syncTxt").textContent=txt; }
+  function toast(msg,kind){
+    const c=document.getElementById("toasts"); if(!c)return;
+    const el=document.createElement("div"); el.className="toast "+(kind||"ok"); el.textContent=msg; c.appendChild(el);
+    setTimeout(()=>el.classList.add("show"),10);
+    setTimeout(()=>{el.classList.remove("show"); setTimeout(()=>el.remove(),300);},2800);
+  }
+  function writeOk(r){
+    if(r&&r.isError) return false;
+    const o=jsonResult(r); if(!o) return false;
+    const s=(o.updateResults&&o.updateResults.summary)||(o.createResults&&o.createResults.summary);
+    if(s) return (s.failed||0)===0 && ((s.updated||0)+(s.created||0))>=1;
+    if(o.updateResults||o.createResults) return true;
+    return false;
+  }
+  function newIdFrom(r){ const o=jsonResult(r); try{ return String(o.createResults.results[0].object.id); }catch(e){ return null; } }
+
+  async function doWrite(args){
+    lastEditTs=Date.now(); savingCount++; setSync("saving","Saving…");
+    let r;
+    try{ r=await window.cowork.callMcpTool(WTOOL,args); }
+    catch(e){ savingCount--; afterSave(); throw new Error(String(e&&e.message||e)); }
+    savingCount--; afterSave();
+    if(!writeOk(r)){ const o=jsonResult(r); throw new Error((o&&(o.error||o.message))||"HubSpot rejected the change"); }
+    return r;
+  }
+  function afterSave(){ if(savingCount<=0){ savingCount=0; setSync("ok","Synced "+ (updatedAt||new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}))); } }
+  function updateTicketArgs(id,props){ return {updateRequest:{objects:[{objectType:"tickets",objectId:Number(id),properties:props}]},confirmationStatus:"CONFIRMED"}; }
+  function updateTaskArgs(id,props){ return {updateRequest:{objects:[{objectType:"tasks",objectId:Number(id),properties:props}]},confirmationStatus:"CONFIRMED"}; }
+
+  // Mirror a ticket event onto its associated deal(s) as a note, so the deal
+  // timeline records what happened via the ticket. Best-effort: never blocks or
+  // breaks the underlying board action if it fails.
+  async function mirrorToDeal(t, action, noteText){
+    if(!t) return;
+    try{
+      // Backend composes the rich deal note from live HubSpot data; we just send the event.
+      const res=await window.cowork.callMcpTool("mirror_to_deal",{ticketId:t.id, action:action, note:noteText||""});
+      const n=res&&res.structuredContent&&res.structuredContent.mirrored;
+      if(n) toast("Logged to deal","ok");
+    }catch(e){ /* best-effort mirroring */ }
+  }
+
+  async function setStage(t,stage){
+    const old=t.stage; if(stage===old) return;
+    t.stage=stage; recompute(t); flashId=t.id; render();
+    try{ await doWrite(updateTicketArgs(t.id,{hs_pipeline_stage:stage})); toast("Status → "+STAGE[stage].label,"ok"); mirrorToDeal(t,"Status changed to "+STAGE[stage].label); }
+    catch(e){ t.stage=old; recompute(t); render(); toast("Couldn't update status: "+e.message,"err"); }
+  }
+  async function setPriority(t,pri){
+    const old=t.pri; if(pri===old) return;
+    t.pri=pri; recompute(t); flashId=t.id; render();
+    try{ await doWrite(updateTicketArgs(t.id,{hs_ticket_priority: pri==="NONE"?"":pri})); toast("Priority → "+PRI[pri].label,"ok"); mirrorToDeal(t,"Priority changed to "+PRI[pri].label); }
+    catch(e){ t.pri=old; recompute(t); render(); toast("Couldn't update priority: "+e.message,"err"); }
+  }
+  async function setTarget(t,date){
+    const old=t.target; const val=date||null; if(val===old) return;
+    t.target=val; recompute(t); flashId=t.id; render();
+    try{ await doWrite(updateTicketArgs(t.id,{closed_date: date||""})); toast(date?("Target → "+fmtDate(date)):"Target date cleared","ok"); mirrorToDeal(t,date?("Target date set to "+fmtDate(date)):"Target date cleared"); }
+    catch(e){ t.target=old; recompute(t); render(); toast("Couldn't update date: "+e.message,"err"); }
+  }
+  async function toggleTask(t,task){
+    if(!task.id){ toast("This task can't be edited (missing id)","err"); return; }
+    const old=task.done; task.done=!old; flashId=t.id; render();
+    try{ await doWrite(updateTaskArgs(task.id,{hs_task_status: task.done?"COMPLETED":"NOT_STARTED"})); toast(task.done?"Task completed":"Task reopened","ok"); mirrorToDeal(t,(task.done?"Task completed: ":"Task reopened: ")+task.title); }
+    catch(e){ task.done=old; render(); toast("Couldn't update task: "+e.message,"err"); }
+  }
+  function startTaskEdit(span){
+    const tid=span.dataset.tt, idx=+span.dataset.ti;
+    const t=TMAP[tid]; if(!t) return; const task=t.tasks[idx]; if(!task) return;
+    if(!task.id){ toast("This task is still saving — try again in a moment","err"); return; }
+    const input=document.createElement("input");
+    input.type="text"; input.className="ttedit"; input.value=task.title;
+    let done=false;
+    const commit=(saveIt)=>{ if(done) return; done=true; const v=input.value; if(saveIt) renameTask(tid,idx,v); else render(); };
+    input.onkeydown=(e)=>{ if(e.key==="Enter"){ e.preventDefault(); commit(true); } else if(e.key==="Escape"){ e.preventDefault(); commit(false); } };
+    input.onblur=()=>commit(true);
+    span.replaceWith(input); input.focus(); input.select();
+  }
+  async function renameTask(tid,idx,title){
+    title=(title||"").trim();
+    const t=TMAP[tid]; if(!t){ render(); return; } const task=t.tasks[idx]; if(!task){ render(); return; }
+    const old=task.title;
+    if(!title||title===old){ render(); return; }
+    task.title=title; flashId=tid; render();
+    try{ await doWrite(updateTaskArgs(task.id,{hs_task_subject:title})); toast("Task renamed","ok"); mirrorToDeal(t,"Task renamed to: "+title); }
+    catch(e){ task.title=old; render(); toast("Couldn't rename task: "+e.message,"err"); }
+  }
+  async function addTask(t,title){
+    title=(title||"").trim(); if(!title) return;
+    const tmp={id:null,title:title,done:false,due:null,_tmp:true};
+    t.tasks.push(tmp); state.openTasks[t.id]=true; flashId=t.id; render();
+    try{
+      const args={createRequest:{objects:[{objectType:"tasks",properties:{hs_task_subject:title,hs_task_status:"NOT_STARTED",hubspot_owner_id:OWNER},associations:[{targetObjectId:Number(t.id),targetObjectType:"tickets"}]}]},confirmationStatus:"CONFIRMED"};
+      const r=await doWrite(args); const nid=newIdFrom(r); tmp.id=nid; tmp._tmp=false;
+      (pendingAdds[t.id]=pendingAdds[t.id]||[]).push({id:nid,title:title,done:false,due:null,addedAt:Date.now()});
+      render(); toast("Task added","ok"); mirrorToDeal(t,"Task added: "+title);
+    }catch(e){ const i=t.tasks.indexOf(tmp); if(i>-1) t.tasks.splice(i,1); render(); toast("Couldn't add task: "+e.message,"err"); }
+  }
+
+  // ---------- render ----------
+  function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
+  function passQ(t){const q=state.q.toLowerCase();return (t.subject||"").toLowerCase().indexOf(q)>-1||(t.hotel||"").toLowerCase().indexOf(q)>-1;}
+  // KPI counts + charts reflect the Type filter (and search), so picking a type shows that type's priority/status breakdown.
+  function baseMatch(t){ return (!state.type.length||state.type.indexOf(t.type)>-1)&&(!state.q||passQ(t)); }
+
+  function statusSelect(t){
+    let o=STAGE_ORDER.map(sid=>'<option value="'+sid+'"'+(sid===t.stage?' selected':'')+'>'+STAGE[sid].label+'</option>').join("");
+    const s=STAGE[t.stage]||STAGE["1"];
+    return '<span class="ctrl sel"><select data-edit="status" data-id="'+esc(t.id)+'" style="color:'+s.color+';background:'+s.soft+';border-color:'+s.soft+'" title="Change status">'+o+'</select></span>';
+  }
+  function prioritySelect(t){
+    let o=PRI_ORDER.map(k=>'<option value="'+k+'"'+(k===t.pri?' selected':'')+'>'+PRI[k].label+'</option>').join("");
+    const p=PRI[t.pri]||PRI.NONE;
+    return '<span class="ctrl sel"><select data-edit="priority" data-id="'+esc(t.id)+'" style="color:'+p.color+';background:'+p.soft+';border-color:'+p.soft+'" title="Change priority">'+o+'</select></span>';
+  }
+  function dateInput(t){
+    return '<span class="ctrl"><input type="date" data-edit="target" data-id="'+esc(t.id)+'" value="'+(t.target||"")+'" title="Set target / due date"></span>';
+  }
+  function typeSelect(t){
+    let o='<option value="">— type —</option>'+TYPE.map(k=>'<option value="'+esc(k)+'"'+(k===t.type?' selected':'')+'>'+esc(k)+'</option>').join("");
+    return '<span class="ctrl sel"><select data-edit="type" data-id="'+esc(t.id)+'" title="Change ticket type">'+o+'</select></span>';
+  }
+  async function setType(t,type){
+    const old=t.type; if(type===old) return;
+    t.type=type; flashId=t.id; render();
+    try{ await doWrite(updateTicketArgs(t.id,{ticket_type:type})); toast(type?("Type → "+type):"Type cleared","ok"); }
+    catch(e){ t.type=old; render(); toast("Couldn't update type: "+e.message,"err"); }
+  }
+
+  // ----- description + notes, lazy-loaded per ticket and cached across refreshes -----
+  function stripHtml(s){ return String(s||"").replace(/<[^>]*>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/\s+/g," ").trim(); }
+  function fmtNoteDate(s){ if(!s) return ""; const d=new Date(s); if(isNaN(d)) return ""; return d.toLocaleDateString([], {month:"short",day:"numeric"})+" "+d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}); }
+  async function loadDetails(id){
+    const d=detailsCache[id]||(detailsCache[id]={content:"",notes:[],loaded:false,loading:false});
+    if(d.loading) return; d.loading=true; render();
+    try{
+      const cr=await window.cowork.callMcpTool(GTOOL,{objectType:"tickets",objectIds:[Number(id)],properties:["content"]});
+      const co=jsonResult(cr); try{ d.content=(co.objects[0].properties.content)||""; }catch(e){ d.content=""; }
+      const nr=await window.cowork.callMcpTool(STOOL,{objectType:"notes",filterGroups:[{associatedWith:[{objectType:"tickets",operator:"EQUAL",objectIdValues:[Number(id)]}]}],properties:["hs_note_body","hs_body_preview","hs_timestamp","hs_createdate"],limit:50,sorts:[{propertyName:"hs_createdate",direction:"DESCENDING"}]});
+      const no=jsonResult(nr); const arr=(no&&no.results)||[];
+      d.notes=arr.map(x=>{const p=x.properties||{};return {id:String(x.id),body:stripHtml(p.hs_note_body||p.hs_body_preview||""),ts:(p.hs_createdate||p.hs_timestamp||"")};});
+    }catch(e){ d.error=String(e&&e.message||e); }
+    d.loaded=true; d.loading=false; render();
+  }
+  async function saveDesc(id,text){
+    const d=detailsCache[id]||(detailsCache[id]={content:"",notes:[],loaded:true});
+    const old=d.content; d.content=text; flashId=id;
+    try{ await doWrite(updateTicketArgs(id,{content:text})); toast("Description saved","ok"); mirrorToDeal(TMAP[id],"Description updated"); }
+    catch(e){ d.content=old; render(); toast("Couldn't save description: "+e.message,"err"); }
+  }
+  async function addNote(id,body){
+    body=(body||"").trim(); if(!body) return;
+    const d=detailsCache[id]||(detailsCache[id]={content:"",notes:[],loaded:true});
+    const tmp={id:null,body:body,ts:new Date().toISOString(),_tmp:true};
+    d.notes=[tmp].concat(d.notes||[]); state.openDetails[id]=true; flashId=id; render();
+    try{
+      const args={createRequest:{objects:[{objectType:"notes",properties:{hs_note_body:body,hs_timestamp:String(Date.now())},associations:[{targetObjectId:Number(id),targetObjectType:"tickets"}]}]},confirmationStatus:"CONFIRMED"};
+      const r=await doWrite(args); tmp.id=newIdFrom(r); tmp._tmp=false; render(); toast("Note added","ok"); mirrorToDeal(TMAP[id],"Note added",body);
+    }catch(e){ d.notes=(d.notes||[]).filter(n=>n!==tmp); render(); toast("Couldn't add note: "+e.message,"err"); }
+  }
+  function detailsBlock(t){
+    const openD=!!state.openDetails[t.id]; const d=detailsCache[t.id];
+    let h='<div class="details"><button class="addbtn dtoggle" data-details="'+esc(t.id)+'">'+(openD?'▾':'▸')+' Description &amp; notes</button>';
+    if(openD){
+      h+='<div class="dpanel">';
+      if(!d||!d.loaded){ h+='<div class="dhint">Loading…</div>'; }
+      else {
+        h+='<div><div class="dlbl">Description</div>'
+          +'<textarea class="desc" data-desc="'+esc(t.id)+'" placeholder="Add a description…">'+esc(d.content||"")+'</textarea>'
+          +'<div><button class="dsave" data-descsave="'+esc(t.id)+'">Save description</button></div></div>';
+        h+='<div><div class="dlbl">Notes</div>';
+        if((d.notes||[]).length){ h+='<div class="notelist">'+d.notes.map(n=>'<div class="note"><div class="nbody">'+esc(n.body)+'</div><div class="nmeta">'+esc(fmtNoteDate(n.ts))+(n._tmp?' · saving…':'')+'</div></div>').join("")+'</div>'; }
+        else { h+='<div class="dhint">No notes yet.</div>'; }
+        h+='<div class="addnote"><input type="text" placeholder="Write a note…" data-noteinput="'+esc(t.id)+'"><button data-notesave="'+esc(t.id)+'">Add note</button></div>';
+        h+='</div>';
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+    return h;
+  }
+
+  function ticketRow(t,rank){
+    const p=PRI[t.pri]||PRI.NONE;
+    const due=fmtDue(t.target);
+    const done=t.tasks.filter(x=>x.done).length, total=t.tasks.length;
+    const open=!!state.openTasks[t.id];
+    let html='<div class="row'+(flashId===t.id?' flash':'')+'" data-row="'+esc(t.id)+'">';
+    html+= rank!=null ? '<div class="rank" style="background:'+p.color+'">'+rank+'</div>' : '<div class="pdot" style="background:'+p.color+'"></div>';
+    html+='<div class="main">';
+    html+='<a class="name" href="'+HS+esc(t.id)+'" target="_blank" rel="noopener">'+esc(t.subject)+'<span class="ext">↗ HubSpot</span></a>';
+    html+='<div class="meta">'+(t.hotel?'<span class="hotel">'+esc(t.hotel)+'</span>':'<span style="color:var(--faint)">No linked deal</span>')+'</div>';
+    html+='<div class="controls">'+statusSelect(t)+prioritySelect(t)+typeSelect(t)+dateInput(t)+'</div>';
+    html+='<div class="prog">';
+    if(total>0){
+      const pct=Math.round(done/total*100);
+      html+='<div class="prog-top"><span class="chev" data-tasks="'+esc(t.id)+'">▾</span>'
+        +'<span data-tasks="'+esc(t.id)+'" style="cursor:pointer">Tasks '+done+'/'+total+'</span>'
+        +'<span class="prog-bar"><span class="prog-fill" style="width:'+pct+'%"></span></span>'
+        +'<button class="addbtn" data-addopen="'+esc(t.id)+'">＋ task</button></div>';
+    } else {
+      html+='<div class="prog-top"><span style="color:var(--faint)">No tasks</span><button class="addbtn" data-addopen="'+esc(t.id)+'">＋ add task</button></div>';
+    }
+    html+='<div class="tasks'+(open?' open':'')+'" id="tasks-'+esc(t.id)+'">';
+    t.tasks.forEach((x,xi)=>{
+      const dd=x.due?fmtDate(x.due):"";
+      html+='<div class="task'+(x.done?' done':'')+'">'
+        +'<input type="checkbox"'+(x.done?' checked':'')+(x._tmp?' disabled':'')+' data-tt="'+esc(t.id)+'" data-ti="'+xi+'">'
+        +'<span class="ttitle'+(x._tmp?'':' tedit')+'" data-tt="'+esc(t.id)+'" data-ti="'+xi+'" title="Click to edit">'+esc(x.title)+'</span>'+(dd?'<span class="tdue">'+dd+'</span>':'')+'</div>';
+    });
+    html+='</div>';
+    html+='<div class="addrow'+(state.openTasks["add_"+t.id]?' open':'')+'" id="add-'+esc(t.id)+'">'
+      +'<input type="text" placeholder="New task title…" data-addinput="'+esc(t.id)+'">'
+      +'<button data-addsave="'+esc(t.id)+'">Add</button></div>';
+    html+='</div>';
+    html+=detailsBlock(t);
+    html+='</div>';
+    html+='<div class="right">';
+    if(t.closed){ html+='<span class="due ok">Closed '+(t.target?fmtDate(t.target):"")+'</span>'; }
+    else if(due){ html+='<span class="due '+due.cls+'">'+esc(due.txt)+'</span>'; }
+    else { html+='<span class="due none">No target date</span>'; }
+    if(!t.closed && t.age!=null) html+='<span class="age">'+t.age+'d open</span>';
+    html+='</div></div>';
+    return html;
+  }
+
+  // Groups every PENDING (not-done) task by its name across all open tickets, so
+  // you can see which deals/tickets share the same outstanding task and clear them together.
+  function taskMatrixHtml(){
+    const map={};
+    TICKETS.forEach(t=>{
+      if(t.closed||!baseMatch(t)) return;
+      (t.tasks||[]).forEach(task=>{
+        if(task.done) return;
+        const title=(task.title||"").trim(); if(!title) return;
+        const key=title.toLowerCase();
+        (map[key]||(map[key]={title:title,items:[]})).items.push(t);
+      });
+    });
+    const groups=Object.keys(map).map(k=>map[k]).sort((a,b)=>b.items.length-a.items.length||a.title.localeCompare(b.title));
+    const openP=state.taskPanelOpen!==false;
+    let h='<div class="panel"><div class="panel-h taskpanel-h" data-taskpanel="1"><span class="chev">'+(openP?'▾':'▸')+'</span>🧩<h2>Shared pending tasks</h2><span class="count" style="background:#0891b2">'+groups.length+'</span><span class="hint">Same task pending across deals — tackle in bulk</span></div>';
+    if(openP){
+      h+='<div class="panel-b">';
+      if(!groups.length){ h+='<div class="empty">No pending tasks 🎉</div>'; }
+      else{
+        groups.forEach(g=>{
+          const gk=g.title.toLowerCase(), gopen=!!state.openTaskGroups[gk];
+          h+='<div class="tg'+(gopen?' open':'')+'"><div class="tg-h" data-tg="'+esc(gk)+'"><span class="chev">▾</span><span class="tg-name">'+esc(g.title)+'</span><span class="tg-count">'+g.items.length+' deal'+(g.items.length>1?'s':'')+'</span></div><div class="tg-body">';
+          h+=g.items.map(t=>{const s=STAGE[t.stage]||STAGE["1"];return '<a class="tg-item" href="'+HS+esc(t.id)+'" target="_blank" rel="noopener"><span class="tg-hotel">'+esc(t.hotel||"—")+'</span><span class="tg-sub">'+esc(t.subject||"")+'</span><span class="tg-stage" style="color:'+s.color+'">'+esc(s.label)+'</span></a>';}).join("");
+          h+='</div></div>';
+        });
+      }
+      h+='</div>';
+    }
+    return h+'</div>';
+  }
+
+  function render(){
+    const C=document.getElementById("content"); const sy=window.scrollY;
+    const open=TICKETS.filter(t=>!t.closed&&baseMatch(t));
+    const counts={
+      overdue:TICKETS.filter(t=>baseMatch(t)&&t.overdue).length,
+      due7:TICKETS.filter(t=>baseMatch(t)&&!t.closed&&t.target&&dayDiff(t.target,todayStr())>=0&&dayDiff(t.target,todayStr())<=7).length,
+      actionable:TICKETS.filter(t=>baseMatch(t)&&t.actionable&&!t.closed).length,
+      waiting:TICKETS.filter(t=>baseMatch(t)&&t.stage==="2").length,
+      open:open.length,
+      closed:TICKETS.filter(t=>baseMatch(t)&&t.closed).length
+    };
+    document.getElementById("sub").innerHTML='Owner <b>'+esc(ownerName)+'</b> · <b>'+TICKETS.length+'</b> tickets · '+counts.open+' open · edit any field below to update HubSpot';
+
+    const tiles=[["overdue","Overdue"],["due7","Due ≤ 7 days"],["actionable","Actionable now"],["waiting","Waiting on customer"],["open","Open total"],["closed","Closed"]];
+    let html='<div class="kpis">'+tiles.map(a=>'<div class="kpi'+(state.quick===a[0]?' active':'')+'" data-k="'+a[0]+'"><div class="bar"></div><div class="n">'+counts[a[0]]+'</div><div class="l">'+a[1]+'</div></div>').join("")+'</div>';
+
+    html+='<div class="topfilter"><span class="lab">Filter by type</span>'
+      + TYPE.map(k=>'<span class="chip'+(state.type.indexOf(k)>-1?' on':'')+'" data-type="'+esc(k)+'">'+esc(k)+'</span>').join("")
+      + (state.type.length?'<span class="chip clearx" data-typeclear="1">✕ clear</span>':'')
+      + '</div>';
+
+    html+='<div class="grid2" style="margin-bottom:16px">'
+      +'<div class="chartbox"><h3>Open tickets by status</h3><div class="canvas-h"><canvas id="cStatus"></canvas></div></div>'
+      +'<div class="chartbox"><h3>Open tickets by priority</h3><div class="canvas-h"><canvas id="cPri"></canvas></div></div></div>';
+
+    html+=taskMatrixHtml();
+
+    const actionable=TICKETS.filter(t=>t.actionable&&!t.closed&&(!state.q||passQ(t))&&(!state.pri.length||state.pri.indexOf(t.pri)>-1)&&(!state.type.length||state.type.indexOf(t.type)>-1)).sort((a,b)=>b.score-a.score);
+    const dfOpen=!state.collapsedSec.dofirst;
+    html+='<div class="panel"><div class="panel-h sec-h" data-sec="dofirst"><span class="chev">'+(dfOpen?'▾':'▸')+'</span>⭐<h2>Do First — Actionable now</h2><span class="count">'+actionable.length+'</span><span class="hint">Ranked by priority, due date &amp; age</span></div>';
+    if(dfOpen){ html+='<div class="panel-b">'+(actionable.length?actionable.map((t,i)=>ticketRow(t,i+1)).join(""):'<div class="empty">Nothing actionable right now 🎉</div>')+'</div>'; }
+    html+='</div>';
+
+    const waiting=TICKETS.filter(t=>t.stage==="2"&&(!state.q||passQ(t))&&(!state.pri.length||state.pri.indexOf(t.pri)>-1)&&(!state.type.length||state.type.indexOf(t.type)>-1)).sort((a,b)=>(b.age||0)-(a.age||0));
+    const waOpen=!state.collapsedSec.waiting;
+    html+='<div class="panel"><div class="panel-h sec-h" data-sec="waiting"><span class="chev">'+(waOpen?'▾':'▸')+'</span>⏳<h2>Follow up — Waiting on customer</h2><span class="count" style="background:#9333ea">'+waiting.length+'</span><span class="hint">Oldest first — nudge these</span></div>';
+    if(waOpen){ html+='<div class="panel-b">'+(waiting.length?waiting.map(t=>ticketRow(t,null)).join(""):'<div class="empty">No tickets waiting on customers.</div>')+'</div>'; }
+    html+='</div>';
+
+    html+='<div class="panel"><div class="filters">'
+      +'<div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'
+      +'<input id="q" placeholder="Search ticket or hotel…" value="'+esc(state.q)+'"></div>'
+      +'<div class="chips"><span class="lab">Show</span>'
+        + tiles.map(a=>'<span class="chip'+(state.quick===a[0]?' on':'')+'" data-quick="'+a[0]+'">'+a[1].replace(" total","")+'</span>').join("")
+        + '<span class="chip'+(state.quick==="all"?' on':'')+'" data-quick="all">All</span></div>'
+      +'<div class="chips"><span class="lab">Priority</span>'
+        + PRI_ORDER.map(k=>'<span class="chip'+(state.pri.indexOf(k)>-1?' on':'')+'" data-pri="'+k+'">'+PRI[k].label+'</span>').join("")
+      +'</div>'
+      +'<div class="chips"><span class="lab">Type</span>'
+        + TYPE.map(k=>'<span class="chip'+(state.type.indexOf(k)>-1?' on':'')+'" data-type="'+esc(k)+'">'+esc(k)+'</span>').join("")
+      +'</div></div>';
+
+    const filtered=TICKETS.filter(passFilters);
+    html+='<div class="panel-b">';
+    let any=false;
+    STAGE_ORDER.forEach(sid=>{
+      const items=filtered.filter(t=>t.stage===sid).sort((a,b)=>b.score-a.score);
+      if(!items.length) return; any=true;
+      const s=STAGE[sid]; const col=state.collapsed[sid];
+      html+='<div class="group'+(col?' collapsed':'')+'" data-g="'+sid+'">'
+        +'<div class="group-h" data-gh="'+sid+'"><span class="chev">▾</span><span class="gname" style="color:'+s.color+'">'+s.label+'</span>'
+        +'<span class="gcount" style="background:'+s.color+'">'+items.length+'</span></div>'
+        +'<div class="group-body">'+items.map(t=>ticketRow(t,null)).join("")+'</div></div>';
+    });
+    if(!any) html+='<div class="empty">No tickets match these filters.</div>';
+    html+='</div></div>';
+
+    C.innerHTML=(degradedMsg?'<div class="notice">⚠ '+esc(degradedMsg)+'</div>':'')+html;
+    document.getElementById("foot").innerHTML='Live two-way sync · edits save to HubSpot instantly · auto-refreshes every 30s (or click ↻ Reload) · "Due" = each ticket\'s Close/Target date';
+    wire(); drawCharts(open);
+    window.scrollTo(0,sy);
+    if(flashId){ const id=flashId; flashId=null; setTimeout(()=>{ const el=document.querySelector('.row[data-row="'+cssId(id)+'"]'); if(el) el.classList.remove("flash"); },1200); }
+  }
+  function cssId(id){ return String(id).replace(/"/g,'\\"'); }
+
+  function passFilters(t){
+    switch(state.quick){
+      case "overdue": if(!t.overdue) return false; break;
+      case "due7": if(!(!t.closed&&t.target&&dayDiff(t.target,todayStr())>=0&&dayDiff(t.target,todayStr())<=7)) return false; break;
+      case "actionable": if(!(t.actionable&&!t.closed)) return false; break;
+      case "waiting": if(t.stage!=="2") return false; break;
+      case "open": if(t.closed) return false; break;
+      case "closed": if(!t.closed) return false; break;
+    }
+    if(state.pri.length && state.pri.indexOf(t.pri)===-1) return false;
+    if(state.type.length && state.type.indexOf(t.type)===-1) return false;
+    if(state.q && !passQ(t)) return false;
+    return true;
+  }
+
+  // ---------- charts ----------
+  let chS=null,chP=null;
+  function drawCharts(open){
+    if(typeof Chart==="undefined") return;
+    const byS={}; open.forEach(t=>{byS[t.stage]=(byS[t.stage]||0)+1;});
+    const sL=[],sD=[],sC=[];
+    STAGE_ORDER.filter(s=>s!=="4").forEach(s=>{if(byS[s]){sL.push(STAGE[s].label);sD.push(byS[s]);sC.push(STAGE[s].color);}});
+    const byP={}; open.forEach(t=>{byP[t.pri]=(byP[t.pri]||0)+1;});
+    const pL=[],pD=[],pC=[];
+    PRI_ORDER.forEach(p=>{if(byP[p]){pL.push(PRI[p].label);pD.push(byP[p]);pC.push(PRI[p].color);}});
+    const opt={responsive:true,maintainAspectRatio:false,cutout:"62%",plugins:{legend:{position:"right",labels:{boxWidth:10,boxHeight:10,font:{size:11},padding:8,usePointStyle:true}}}};
+    if(chS)chS.destroy(); if(chP)chP.destroy();
+    const e1=document.getElementById("cStatus"),e2=document.getElementById("cPri");
+    if(e1)chS=new Chart(e1,{type:"doughnut",data:{labels:sL,datasets:[{data:sD,backgroundColor:sC,borderWidth:2,borderColor:"#fff"}]},options:opt});
+    if(e2)chP=new Chart(e2,{type:"doughnut",data:{labels:pL,datasets:[{data:pD,backgroundColor:pC,borderWidth:2,borderColor:"#fff"}]},options:opt});
+  }
+
+  // ---------- events ----------
+  function wire(){
+    document.querySelectorAll(".kpi").forEach(el=>el.onclick=()=>{const k=el.dataset.k;state.quick=(state.quick===k?"all":k);save();render();});
+    document.querySelectorAll("[data-quick]").forEach(el=>el.onclick=()=>{state.quick=el.dataset.quick;save();render();});
+    document.querySelectorAll("[data-pri]").forEach(el=>el.onclick=()=>{const k=el.dataset.pri;const i=state.pri.indexOf(k);if(i>-1)state.pri.splice(i,1);else state.pri.push(k);save();render();});
+    document.querySelectorAll("[data-type]").forEach(el=>el.onclick=()=>{const k=el.dataset.type;const i=state.type.indexOf(k);if(i>-1)state.type.splice(i,1);else state.type.push(k);save();render();});
+    document.querySelectorAll("[data-typeclear]").forEach(el=>el.onclick=()=>{state.type=[];save();render();});
+    document.querySelectorAll("[data-taskpanel]").forEach(el=>el.onclick=()=>{state.taskPanelOpen=!(state.taskPanelOpen!==false);save();render();});
+    document.querySelectorAll("[data-sec]").forEach(el=>el.onclick=()=>{const k=el.dataset.sec;state.collapsedSec[k]=!state.collapsedSec[k];save();render();});
+    document.querySelectorAll("[data-tg]").forEach(el=>el.onclick=()=>{const k=el.dataset.tg;state.openTaskGroups[k]=!state.openTaskGroups[k];save();const n=el.closest(".tg");if(n)n.classList.toggle("open");});
+    document.querySelectorAll("[data-gh]").forEach(el=>el.onclick=()=>{const g=el.dataset.gh;state.collapsed[g]=!state.collapsed[g];save();const n=document.querySelector('.group[data-g="'+g+'"]');if(n)n.classList.toggle("collapsed");});
+    document.querySelectorAll("[data-tasks]").forEach(el=>el.onclick=()=>{const id=el.dataset.tasks;state.openTasks[id]=!state.openTasks[id];save();const n=document.getElementById("tasks-"+id);if(n)n.classList.toggle("open");});
+    document.querySelectorAll('select[data-edit="status"]').forEach(el=>el.onchange=()=>{const t=TMAP[el.dataset.id];if(t)setStage(t,el.value);});
+    document.querySelectorAll('select[data-edit="priority"]').forEach(el=>el.onchange=()=>{const t=TMAP[el.dataset.id];if(t)setPriority(t,el.value);});
+    document.querySelectorAll('input[data-edit="target"]').forEach(el=>el.onchange=()=>{const t=TMAP[el.dataset.id];if(t)setTarget(t,el.value);});
+    document.querySelectorAll('input[data-tt]').forEach(el=>el.onchange=()=>{const t=TMAP[el.dataset.tt];if(t){const tk=t.tasks[+el.dataset.ti];if(tk)toggleTask(t,tk);}});
+    document.querySelectorAll('.tedit').forEach(el=>el.onclick=()=>startTaskEdit(el));
+    document.querySelectorAll('[data-addopen]').forEach(el=>el.onclick=()=>{const id=el.dataset.addopen;state.openTasks["add_"+id]=!state.openTasks["add_"+id];const n=document.getElementById("add-"+id);if(n){n.classList.toggle("open");const inp=n.querySelector("input");if(inp&&n.classList.contains("open"))inp.focus();}});
+    document.querySelectorAll('[data-addsave]').forEach(el=>el.onclick=()=>{const id=el.dataset.addsave;const t=TMAP[id];const n=document.querySelector('input[data-addinput="'+cssId(id)+'"]');if(t&&n){const v=n.value;n.value="";state.openTasks["add_"+id]=false;addTask(t,v);}});
+    document.querySelectorAll('input[data-addinput]').forEach(el=>el.onkeydown=(e)=>{if(e.key==="Enter"){const id=el.dataset.addinput;const t=TMAP[id];const v=el.value;el.value="";state.openTasks["add_"+id]=false;if(t)addTask(t,v);}});
+    document.querySelectorAll('select[data-edit="type"]').forEach(el=>el.onchange=()=>{const t=TMAP[el.dataset.id];if(t)setType(t,el.value);});
+    document.querySelectorAll('[data-details]').forEach(el=>el.onclick=()=>{const id=el.dataset.details;state.openDetails[id]=!state.openDetails[id];save();const dc=detailsCache[id];if(state.openDetails[id]&&(!dc||(!dc.loaded&&!dc.loading)))loadDetails(id);else render();});
+    document.querySelectorAll('[data-descsave]').forEach(el=>el.onclick=()=>{const id=el.dataset.descsave;const p=el.closest('.dpanel');const ta=p?p.querySelector('textarea.desc'):document.querySelector('textarea[data-desc="'+cssId(id)+'"]');if(ta)saveDesc(id,ta.value);});
+    document.querySelectorAll('[data-notesave]').forEach(el=>el.onclick=()=>{const id=el.dataset.notesave;const p=el.closest('.addnote');const n=p?p.querySelector('input'):document.querySelector('input[data-noteinput="'+cssId(id)+'"]');if(n){const v=n.value;n.value="";addNote(id,v);}});
+    document.querySelectorAll('input[data-noteinput]').forEach(el=>el.onkeydown=(e)=>{if(e.key==="Enter"){const id=el.dataset.noteinput;const v=el.value;el.value="";addNote(id,v);}});
+    const q=document.getElementById("q");
+    if(q){ q.oninput=()=>{state.q=q.value;save();clearTimeout(window.__qd);window.__qd=setTimeout(()=>{render();const n=document.getElementById("q");if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}},220);}; }
+  }
+
+  // Cache-busted reads (see cb()) make a background refresh return the TRUE current HubSpot
+  // state, so auto-sync is safe again. Skip while a save is in flight or a control is focused;
+  // load() also discards any refresh that raced with an edit, so edits are never reverted.
+  const content=document.getElementById("content");
+  content.addEventListener("focusin",e=>{ if(e.target.matches&&e.target.matches("select,input,textarea")) editing=true; });
+  content.addEventListener("focusout",()=>{ setTimeout(()=>{editing=false;},300); });
+  setInterval(()=>{ if(savingCount>0||editing||document.hidden) return; load(true); }, 30000);
+  load();
+})();
+</script>
+</body>
+</html>

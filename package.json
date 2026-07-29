@@ -1,0 +1,9 @@
+{
+  "name": "smartboard-live-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public live Smart Board for HubSpot tickets, with a token-holding proxy and two-way sync.",
+  "engines": {
+    "node": ">=18"
+  }
+}
